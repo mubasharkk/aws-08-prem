@@ -14,7 +14,7 @@ def get_products():
 
 @app.route("products/<int:product_id>")
 def get_product(product_id):
-    return "<h1>Product detailed page for {{ product_id }}</h1>"
+    return f"<h1>Product detailed page for { product_id }</h1>"
 
 if __name__ == "__main__":
     # app.run(debug=True)
