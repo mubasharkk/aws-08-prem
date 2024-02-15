@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: |
+  This is our webserver
+Parameters:
+  DefaultKeyPair:
+    Description: Existing Key name
+    Type: String
+    Default: LinuxKey
+
+Resources:
+  MyWebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: "ami-0e731c8a588258d0d"
+      InstanceType: "t2.micro"
+      KeyName: !Ref DefaultKeyPair
+      SecurityGroups:
+        - "WebSecurityGroup"
+      Tags:
+        - Key: "Name"
+          Value: "mubi-aws-cloudformation-lesson"
