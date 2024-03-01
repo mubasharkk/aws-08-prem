@@ -10,19 +10,19 @@ def findLargestNum(nums):
     # And return the largest number in the array
 
     # Solution # 1
-    # largest = nums[0]
-    # for i in nums:
-    #     if i > largest:
-    #         largest = i
-    #
-    # return largest
+    largest = nums[0]
+    for i in nums:
+        if i > largest:
+            largest = i
+
+    return largest
 
     # Solution # 2
-    print(nums.sort(reverse=True))
-    return nums.sort(reverse=True)[0]
+    #print(nums.sort(reverse=True))
+    # return nums.sort(reverse=True)[0]
 
     # Solution # 3
-    #return max(nums)
+    # return max(nums)
 
 
 print('Result: ', findLargestNum(numbers))
