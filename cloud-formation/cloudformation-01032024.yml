@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: |
+  This is our web server.
+
+Parameters:
+  KeyPairName:
+    Description: SSH Public Key
+    Type: AWS::EC2::KeyPair::KeyName
+  CustomSecurityGroup:
+    Description: Security group for the EC2 instance
+    Type: AWS::EC2::SecurityGroup::GroupName
+
+Resources:
+  MyWebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0e731c8a588258d0d
+      InstanceType: t2.micro
+      KeyName: !Ref KeyPairName
+      SecurityGroups:
+        - !Ref CustomSecurityGroup
+      Tags:
+        - Key: Name
+          Value: mubi-cloudformation-lesson
+      UserData:
+        Fn::Base64: |
+          #! /bin/bash
+          dnf update -y
+          dnf install git httpd -y
+          cd /home/ec2-user
+          git clone https://github.com/bluehackrafestefano/Project-101-kittens-carousel-static-website-ec2-CF-08.git app
+          mv /home/ec2-user/app/static-web/* /var/www/html
+          systemctl start httpd
+          systemctl enable httpd
+Outputs:
+  PublicIpAddress:
+    Description: This is the public IP address of the instance
+    Value: !Sub
+      - http://${PublicAddress}
+      - PublicAddress: !GetAtt MyWebServer.PublicIp
