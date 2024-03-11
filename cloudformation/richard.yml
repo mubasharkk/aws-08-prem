@@ -1,0 +1,170 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  This template creates an ASG behind ALB.
+
+
+Parameters:
+  VPC:
+    Description: Select a VPC
+    Type: AWS::EC2::VPC::Id
+
+  Subnet:
+    Description: Select at least 2 (two) subnets
+    Type: List<AWS::EC2::Subnet::Id>
+
+  KeyPair:
+    Description: Select your key pair
+    Type: AWS::EC2::KeyPair::KeyName
+
+  InstanceType:
+    Description: Select your instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+         - t2.micro
+         - t3.micro
+         - t2.nano
+         - t3.nano
+Mappings:
+  RegionImageMap:
+    us-east-1:
+      AMI: ami-0440d3b780d96b29d
+    us-east-2:
+      AMI: ami-02ca28e7c7b8f8be1
+    us-west-1:
+      AMI: ami-07619059e86eaaaa2
+    us-west-2:
+      AMI: ami-052c9ea013e6e3567
+    eu-west-1:
+      AMI: ami-0ef9e689241f0bb6e
+
+Resources:
+  mySG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enables SSH and HTTP # Required
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VPC
+
+  myALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      SecurityGroups:
+        - !GetAtt mySG.GroupId
+      Subnets: !Ref Subnet                   # ADD LATER
+      Type: application
+
+  myTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 3
+      VpcId: !Ref VPC                  # add later
+
+  myListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions: # Required
+        - Type: forward
+          TargetGroupArn: !Ref myTG
+      LoadBalancerArn: !Ref myALB
+      Port: 80
+      Protocol: HTTP
+
+  myASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      DesiredCapacity: "2"
+      HealthCheckGracePeriod: 90
+      HealthCheckType: ELB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref myLT
+        Version: "1"
+      MaxSize: "3" # Required
+      MinSize: "1" # Required
+      TargetGroupARNs:
+        - !Ref myTG
+      VPCZoneIdentifier: !Ref Subnet
+
+  myCPUPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref myASG # Required
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 60.0
+
+  myLT:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !FindInMap
+          - RegionImageMap
+          - !Ref 'AWS::Region'
+          - AMI
+        InstanceType: !Ref InstanceType   # ADD LATER
+        KeyName: !Ref KeyPair  # ADD LATER
+        SecurityGroupIds:   # ADD LATER
+          - !GetAtt mySG.GroupId
+        UserData: !Base64 |
+          #!/bin/bash
+          #update os
+          yum update -y
+          #install apache server
+          yum install -y httpd
+          # get private ip address of ec2 instance using instance metadata
+          TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+          && PRIVATE_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4`
+          # get public ip address of ec2 instance using instance metadata
+          TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+          && PUBLIC_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4`
+          # get date and time of server
+          DATE_TIME=`date`
+          # set all permissions
+          chmod -R 777 /var/www/html
+          # create a custom index.html file
+          echo "<html>
+          <head>
+              <title> Application Load Balancer</title>
+          </head>
+          <body>
+              <h1>Testing Application Load Balancer</h1>
+              <h2>Congratulations! You have created an instance from Launch Template</h2>
+              <h3>This web server is launched from the launch template by YOUR_NAME</h3>
+              <p>This instance is created at <b>$DATE_TIME</b></p>
+              <p>Private IP address of this instance is <b>$PRIVATE_IP</b></p>
+              <p>Public IP address of this instance is <b>$PUBLIC_IP</b></p>
+          </body>
+          </html>" > /var/www/html/index.html
+          # start apache server
+          systemctl start httpd
+          systemctl enable httpd
+
+
+Outputs:
+  DNSofALB:
+    Description: DNS of ALB-1
+    Value:
+      !GetAtt myALB.DNSName
+
+  DNSofALBtwo:
+    Description: DNS of ALB-2
+    Value: !Join
+      - ''
+      - - 'http://'
+        - !GetAtt myALB.DNSName

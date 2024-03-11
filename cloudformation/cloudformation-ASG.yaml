@@ -1,0 +1,184 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Autoscaling infrastructure with RDS
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where resources will be deployed
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnet IDs for the instances
+  DBPassword:
+    Type: String
+    Description: Password for the MySQL RDS instance
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Select your key pair
+  MyInstanceType:
+    Description: Select your instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+     - t2.micro
+     - t3.micro
+     - t2.nano
+     - t3.nano
+#   AMIMap:
+#     Type: AWS::EC2::RegionMap
+#     Description: Mapping of region to AMI ID
+#     Default:
+#       us-east-1: ami-12345678
+#       us-west-1: ami-23456789
+#       # Add more regions as needed with their respective AMI IDs
+
+Mappings:
+  RegionImageMap:
+    us-east-1:
+      AMI: ami-0440d3b780d96b29d
+    us-east-2:
+      AMI: ami-02ca28e7c7b8f8be1
+    us-west-1:
+      AMI: ami-07619059e86eaaaa2
+    us-west-2:
+      AMI: ami-052c9ea013e6e3567
+    eu-west-1:
+      AMI: ami-0ef9e689241f0bb6e
+
+Resources:
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP, HTTPS, and SSH access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VpcId
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets: !Ref SubnetIds
+      SecurityGroups:
+        - !GetAtt WebServerSecurityGroup.GroupId
+      Scheme: internet-facing
+      Type: application
+
+  MyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      TargetType: instance
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+
+  MyAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateName: !Ref MyLaunchTemplate
+      MinSize: 2
+      MaxSize: 4
+      DesiredCapacity: 2
+      TargetGroupARNs:
+        - !Ref MyTargetGroup
+      VPCZoneIdentifier: !Ref SubnetIds
+      Tags:
+        - Key: Name
+          Value: MyAutoScalingGroup
+          PropagateAtLaunch: true
+      ScalingPolicies:
+        - PolicyName: ScaleOut
+          PolicyType: TargetTrackingScaling
+          TargetTrackingConfiguration:
+            PredefinedMetricSpecification:
+              PredefinedMetricType: ASGAverageCPUUtilization
+            TargetValue: 50 # Adjust as needed
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds: !Ref SubnetIds
+
+  MyDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: MyDatabase
+      Engine: mysql
+      DBInstanceClass: db.t2.micro
+      EngineVersion: '8.0'
+      AllocatedStorage: 20
+      MasterUsername: admin
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+
+  MyLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: MyLaunchTemplate
+      LaunchTemplateData:
+        SecurityGroupIds:
+          - !GetAtt WebServerSecurityGroup.GroupId
+        InstanceType: t2.micro
+#         ImageId: !FindInMap
+#           - RegionImageMap
+#           - !Ref 'AWS::Region'
+#           - AMI
+        KeyName: !Ref KeyPair
+        InstanceType: !Ref MyInstanceType
+#         UserData: !Base64 |
+#           #!/bin/bash
+#           #update os
+#           yum update -y
+#           #install apache server
+#           yum install -y httpd
+#           # get private ip address of ec2 instance using instance metadata
+#           TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+#           && PRIVATE_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4`
+#           # get public ip address of ec2 instance using instance metadata
+#           TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+#           && PUBLIC_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4`
+#           # get date and time of server
+#           DATE_TIME=`date`
+#           # set all permissions
+#           chmod -R 777 /var/www/html
+#           # create a custom index.html file
+#           echo "<html>
+#           <head>
+#               <title> Application Load Balancer</title>
+#           </head>
+#           <body>
+#               <h1>Testing Application Load Balancer</h1>
+#               <h2>Congratulations! You have created an instance from Launch Template</h2>
+#               <h3>This web server is launched from the launch template by YOUR_NAME</h3>
+#               <p>This instance is created at <b>$DATE_TIME</b></p>
+#               <p>Private IP address of this instance is <b>$PRIVATE_IP</b></p>
+#               <p>Public IP address of this instance is <b>$PUBLIC_IP</b></p>
+#           </body>
+#           </html>" > /var/www/html/index.html
+#           # start apache server
+#           systemctl start httpd
+#           systemctl enable httpd
+
+Outputs:
+  DNSofALB:
+    Description: DNS of ALB-1
+    Value:
+      !GetAtt LoadBalancer.DNSName
+
+  DNSofALBtwo:
+    Description: DNS of ALB-2
+    Value: !Join
+      - ''
+      - - 'http://'
+        - !GetAtt LoadBalancer.DNSName
