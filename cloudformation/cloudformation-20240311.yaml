@@ -1,0 +1,270 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This template create application load balancer
+Parameters:
+
+Parameters:
+  KeyPairName:
+    Description: SSH Public Key
+    Type: AWS::EC2::KeyPair::KeyName
+  VPCSubnets:
+    Description: Select at least 2 (two) subnets
+    Type: 'List<AWS::EC2::Subnet::Id>'
+  MyVPCId:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: Select a VPC
+  MyInstanceType:
+    Type: String
+    Description: Select your instance type
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+      - t2.nano
+      - t3.nano
+Resources:
+  WPServerSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enables SSH and HTTP/s
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref MyVPCId
+      Tags:
+        - Key: Name
+          Value: WordpressServerSecurityGroup
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 289b869a-1981-405e-9cea-26e126dedac7
+  WPLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      SecurityGroups:
+        - !GetAtt WPServerSecurityGroup.GroupId
+      Subnets: !Ref VPCSubnets
+      Tags:
+        - Key: Name
+          Value: WordpressLoadBalancer
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 411202a1-4aa1-413e-b4f8-6e6eb1a025b7
+  WPTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 3
+      VpcId: !Ref MyVPCId
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: e9839bed-8df7-42a5-b3d0-29a06e3b4fb2
+  WPLBListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WPTargetGroup
+      LoadBalancerArn: !Ref WPLoadBalancer
+      Port: 80
+      Protocol: HTTP
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 4b2b8a70-32c8-4fe0-b5e6-83104b58ffd7
+  WPAutoScalingGroup:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Properties:
+      DesiredCapacity: '2'
+      HealthCheckGracePeriod: 90
+      HealthCheckType: ELB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WPLaunchTemplate
+        Version: '1'
+      MaxSize: '3'
+      MinSize: '1'
+      TargetGroupARNs:
+        - !Ref WPTargetGroup
+      VPCZoneIdentifier: !Ref VPCSubnets
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 2aad42e3-8f8c-489b-8212-3a6a7d5df129
+  WPServerCPUPolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      AutoScalingGroupName: !Ref WPAutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 60
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 75784ae2-d01c-43c2-b3ff-88b873f8dd3d
+  WPDBInstance:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      Engine: mysql
+      DBInstanceClass: db.t2.micro
+      EngineVersion: 8.0.35
+      DBName: clarusway
+      MasterUsername: root
+      MasterUserPassword: mc4nx4uDx54yAt
+      AllocatedStorage: '20'
+      DBInstanceIdentifier: WPDBInstance
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      PubliclyAccessible: true
+      Port: 3306
+      BackupRetentionPeriod: 7
+      MultiAZ: false
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 44802a50-be11-4872-9e6a-f35e3ee045d9
+  DBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enables MySQL access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref MyVPCId
+      Tags:
+        - Key: Name
+          Value: WordpressDBSecurityGroup
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 8479d9c2-6700-4943-87e9-239d8a468780
+  WPLaunchTemplate:
+    Type: 'AWS::EC2::LaunchTemplate'
+    Properties:
+      LaunchTemplateData:
+        ImageId: ami-0f403e3180720dd7e
+        InstanceType: !Ref MyInstanceType
+        KeyName: !Ref KeyPairName
+        SecurityGroupIds:
+          - !GetAtt WPServerSecurityGroup.GroupId
+        UserData: !Base64 |
+            #!/bin/bash
+
+            #update os
+
+            yum update -y
+
+            #install apache server
+
+            yum install -y httpd
+
+            # get private ip address of ec2 instance using instance metadata
+
+            TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H
+            "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+
+            && PRIVATE_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN"
+            http://169.254.169.254/latest/meta-data/local-ipv4`
+
+            # get public ip address of ec2 instance using instance metadata
+
+            TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H
+            "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+
+            && PUBLIC_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN"
+            http://169.254.169.254/latest/meta-data/public-ipv4`
+
+            # get date and time of server
+
+            DATE_TIME=`date`
+
+            # install composer
+
+            yum install composer
+
+            # set all permissions
+
+            chmod -R 777 /var/www/html
+
+
+            RDS_PUBLIC_IP=$(aws rds describe-db-instances
+            --db-instance-identifier ${WPDBInstance} --query
+            'DBInstances[0].Endpoint.Address' --output text)
+
+
+            # create a custom index.php file
+
+            echo "<html>
+
+            <head>
+                <title> Application Load Balancer</title>
+            </head>
+
+            <body>
+                <h1>Testing Application Load Balancer</h1>
+                <h2>Congratulations! You have created an instance from Launch Template</h2>
+                <h3>This web server is launched from the launch template by YOUR_NAME</h3>
+                <p>This instance is created at <b>$DATE_TIME</b></p>
+                <p>Private IP address of this instance is <b>$PRIVATE_IP</b></p>
+                <p>Public IP address of this instance is <b>$PUBLIC_IP</b></p>
+            <?php
+
+
+            // Database credentials
+
+            $host = '$RDS_PUBLIC_IP';
+
+            $dbname = 'clarusway';
+
+            $username = 'root';
+
+            $password = 'mc4nx4uDx54yAt';
+
+
+            try {
+                // Create a new PDO instance
+                $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+
+                // Set PDO attributes to handle errors
+                $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+                // Display success message if connected
+                echo "<p style='color:green;'>Connected successfully to the database.</p>";
+            } catch (PDOException $e) {
+                // Display error message if connection fails
+                echo "<p style='color:red'>Connection failed: " . $e->getMessage();
+            }
+
+            ?>
+
+            </body>
+
+            </html>" > /var/www/html/index.php
+
+            # start apache server
+
+            systemctl start httpd
+
+            systemctl enable httpd
+    DependsOn:
+      - WPDBInstance
+Outputs:
+  DNSofALB:
+    Description: DNS of ALB-1
+    Value: !GetAtt WPLoadBalancer.DNSName
+  DNSofALBtwo:
+    Description: DNS of ALB-2
+    Value: !Join
+      - ''
+      - - 'http://'
+        - !GetAtt WPLoadBalancer.DNSName

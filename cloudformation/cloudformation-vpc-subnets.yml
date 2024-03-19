@@ -1,0 +1,200 @@
+Parameters:
+  KeyPair:
+    Description: Select a keypair
+    Type: AWS::EC2::KeyPair::KeyName
+
+Resources:
+  myvpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.25.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+           - Key: Name
+             Value: MY_LATEST_VPC
+
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1a
+      VpcId: !Ref myvpc
+      CidrBlock: 10.25.10.0/24
+      Tags:
+        - Key: Name
+          Value: region1a
+
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1b
+      VpcId: !Ref myvpc
+      CidrBlock: 10.25.20.0/24
+      Tags:
+        - Key: Name
+          Value: region1b
+
+  Subnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1c
+      VpcId: !Ref myvpc
+      CidrBlock: 10.25.30.0/24
+      Tags:
+        - Key: Name
+          Value: region1c
+
+  Subnet4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1d
+      VpcId: !Ref myvpc
+      CidrBlock: 10.25.40.0/24
+      Tags:
+        - Key: Name
+          Value: region1d
+
+  Subnet5:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1e
+      VpcId: !Ref myvpc
+      CidrBlock: 10.25.50.0/24
+      Tags:
+        - Key: Name
+          Value: region1e
+
+  RouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myvpc
+      Tags:
+        - Key: Name
+          Value: latest_route_table_public
+
+  RouteTablePrivate:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myvpc
+      Tags:
+        - Key: Name
+          Value: latest_route_table_private
+
+  mySubnetRouteTableAssociationone:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        !Ref Subnet1
+      RouteTableId:
+        !Ref RouteTablePublic
+
+  mySubnetRouteTableAssociationtwo:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        !Ref Subnet2
+      RouteTableId:
+        !Ref RouteTablePublic
+
+  mySubnetRouteTableAssociationthree:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        !Ref Subnet3
+      RouteTableId:
+        !Ref RouteTablePublic
+
+  mySubnetRouteTableAssociationfour:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        !Ref Subnet4
+      RouteTableId:
+        !Ref RouteTablePrivate
+
+  mySubnetRouteTableAssociationfive:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        !Ref Subnet5
+      RouteTableId:
+        !Ref RouteTablePrivate
+
+  igwName:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: My_Latest-IGW
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref myvpc
+      InternetGatewayId: !Ref igwName
+
+  RouteIGWConnection:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref igwName
+
+
+  MySecGrp2024:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allows 80 and 22 ports
+      VpcId: !Ref myvpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: SecGrp2024
+
+
+  MyNACL:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref myvpc
+
+  MyEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref MyEC2Instance
+
+
+
+  MyEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: us-east-1c
+      ImageId: ami-0f403e3180720dd7e
+      InstanceType: t2.micro
+      KeyName: !Ref KeyPair
+      SecurityGroupIds:
+        - !Ref MySecGrp2024
+      SubnetId: !Ref Subnet3
+      UserData: !Base64 |
+        #!/bin/bash
+        sudo yum update -y
+        sudo yum install nginx -y
+        sudo systemctl start nginx
+        cd /usr/share/nginx/html
+        sudo chmod -R 777 /usr/share/nginx/html
+        sudo rm index.html
+        wget https://raw.githubusercontent.com/awsdevopsteam/route-53/master/index.html
+        wget https://raw.githubusercontent.com/awsdevopsteam/route-53/master/ken.jpg
+        sudo systemctl restart nginx
+        sudo systemctl enable nginx
+
+      Tags:
+        - Key: Name
+          Value: myec2
